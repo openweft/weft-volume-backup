@@ -1,0 +1,55 @@
+name: ci
+
+# Build + test on push to main and on PRs. Mirrors the weft-ha-block CI: the
+# httptest-backed OCI registry tests run natively (amd64/arm64), the whole
+# module is cross-built on the 6 supported 64-bit architectures, and a coverage
+# gate enforces the org's 100%-statement rule.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache: true
+      - run: gofmt -l . | tee /dev/stderr | (! read)
+      - run: go vet ./...
+      - name: test (race) + per-function 100% coverage gate
+        env:
+          GOWORK: off
+        run: |
+          set -euo pipefail
+          go test ./... -race -count=1 -covermode=atomic -coverprofile=cover.out
+          go tool cover -func=cover.out
+          # The org gate: fail if any function is below 100%.
+          go tool cover -func=cover.out | \
+            awk '$1 != "total:" && $3 != "100.0%" { print "UNCOVERED:", $0; bad=1 } END { exit bad }'
+
+  cross-build:
+    runs-on: ubuntu-latest
+    needs: test
+    strategy:
+      matrix:
+        goarch: [amd64, arm64, riscv64, loong64, ppc64le, s390x]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache: true
+      - name: build linux/${{ matrix.goarch }}
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+          GOWORK: off
+        run: go build -trimpath -ldflags '-s -w' ./...
