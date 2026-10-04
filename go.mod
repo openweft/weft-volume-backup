@@ -1,6 +1,6 @@
 module github.com/openweft/weft-volume-backup
 
-go 1.26.4
+go 1.27.1
 
 require (
 	github.com/go-volumes/oci v0.0.0-20260617044610-c2f09e512641
